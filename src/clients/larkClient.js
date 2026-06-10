@@ -1,0 +1,177 @@
+import { chunk } from "../utils/batch.js";
+import { fetchJsonWithRetry } from "../utils/retry.js";
+
+const LARK_API_BASE = "https://open.larksuite.com/open-apis";
+
+function assertLarkSuccess(body, operation) {
+  if (!body || typeof body !== "object") {
+    throw new Error(`${operation} returned an unexpected response shape`);
+  }
+  if (body.code !== 0) {
+    throw new Error(`${operation} failed: [${body.code}] ${body.msg || "Unknown error"}`);
+  }
+  return body.data ?? {};
+}
+
+export function createLarkClient({ fetchImpl = fetch, logger, batchSize = 100 } = {}) {
+  async function request(url, options, operation) {
+    const body = await fetchJsonWithRetry(url, options, {
+      fetchImpl,
+      logger,
+      operation,
+    });
+    return assertLarkSuccess(body, operation);
+  }
+
+  async function getTenantAccessToken({ appId, appSecret }) {
+    const body = await fetchJsonWithRetry(
+      `${LARK_API_BASE}/auth/v3/tenant_access_token/internal`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+      },
+      { fetchImpl, logger, operation: "Lark tenant access token" },
+    );
+    if (!body || typeof body !== "object" || body.code !== 0) {
+      throw new Error(
+        `Lark tenant access token failed: [${body?.code ?? "unknown"}] ${body?.msg || "Unexpected response"}`,
+      );
+    }
+    const token = body.tenant_access_token;
+    if (!token) throw new Error("Lark token response is missing tenant_access_token");
+    return token;
+  }
+
+  async function searchRecords({
+    token,
+    baseId,
+    tableId,
+    dateFieldName,
+    fromMs,
+    toMs,
+  }) {
+    const records = [];
+    let pageToken = null;
+
+    do {
+      const url = new URL(
+        `${LARK_API_BASE}/bitable/v1/apps/${encodeURIComponent(baseId)}/tables/${encodeURIComponent(tableId)}/records/search`,
+      );
+      url.searchParams.set("user_id_type", "open_id");
+      url.searchParams.set("page_size", "500");
+      if (pageToken) url.searchParams.set("page_token", pageToken);
+
+      const data = await request(
+        url,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            automatic_fields: false,
+            filter: {
+              conjunction: "and",
+              conditions: [
+                {
+                  field_name: dateFieldName,
+                  operator: "isGreater",
+                  value: ["ExactDate", fromMs - 1000],
+                },
+                {
+                  field_name: dateFieldName,
+                  operator: "isLess",
+                  value: ["ExactDate", toMs + 1000],
+                },
+              ],
+            },
+          }),
+        },
+        `Lark search ${tableId}`,
+      );
+
+      const items = data.items ?? [];
+      if (!Array.isArray(items)) {
+        throw new Error(`Lark search ${tableId} returned invalid items`);
+      }
+      records.push(...items);
+
+      if (data.has_more === true && !data.page_token) {
+        throw new Error(`Lark search ${tableId} has_more without page_token`);
+      }
+      pageToken = data.has_more === true ? data.page_token : null;
+    } while (pageToken);
+
+    return records;
+  }
+
+  async function runBatches({ token, baseId, tableId, path, payloadKey, items }) {
+    const results = [];
+    for (const currentBatch of chunk(items, batchSize)) {
+      const data = await request(
+        `${LARK_API_BASE}/bitable/v1/apps/${encodeURIComponent(baseId)}/tables/${encodeURIComponent(tableId)}/records/${path}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ [payloadKey]: currentBatch }),
+        },
+        `Lark ${path} ${tableId}`,
+      );
+      results.push(data);
+    }
+    return results;
+  }
+
+  function batchCreateRecords({ token, baseId, tableId, records }) {
+    return runBatches({
+      token,
+      baseId,
+      tableId,
+      path: "batch_create",
+      payloadKey: "records",
+      items: records,
+    });
+  }
+
+  function batchUpdateRecords({ token, baseId, tableId, records }) {
+    return runBatches({
+      token,
+      baseId,
+      tableId,
+      path: "batch_update",
+      payloadKey: "records",
+      items: records,
+    });
+  }
+
+  function batchDeleteRecords({ token, baseId, tableId, recordIds }) {
+    return runBatches({
+      token,
+      baseId,
+      tableId,
+      path: "batch_delete",
+      payloadKey: "records",
+      items: recordIds,
+    });
+  }
+
+  return {
+    getTenantAccessToken,
+    searchRecords,
+    batchCreateRecords,
+    batchUpdateRecords,
+    batchDeleteRecords,
+  };
+}
+
+export const defaultLarkClient = createLarkClient();
+export const getTenantAccessToken = defaultLarkClient.getTenantAccessToken;
+export const searchRecords = defaultLarkClient.searchRecords;
+export const batchCreateRecords = defaultLarkClient.batchCreateRecords;
+export const batchUpdateRecords = defaultLarkClient.batchUpdateRecords;
+export const batchDeleteRecords = defaultLarkClient.batchDeleteRecords;

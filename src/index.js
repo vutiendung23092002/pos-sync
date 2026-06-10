@@ -1,0 +1,74 @@
+import { createDbClient } from "./clients/dbClient.js";
+import { createLarkClient } from "./clients/larkClient.js";
+import { createPosClient } from "./clients/posClient.js";
+import { loadConfig } from "./config.js";
+import { createProductCostService } from "./services/productCostService.js";
+import { createSyncDay } from "./services/syncDay.js";
+import { createTableConfigService } from "./services/tableConfigService.js";
+import { createLogger } from "./utils/logger.js";
+
+async function main() {
+  const config = loadConfig();
+  const logger = createLogger(config.logLevel);
+  const dbClient = createDbClient({ connectionString: config.databaseUrl });
+  let locked = false;
+
+  try {
+    locked = await dbClient.tryAdvisoryLock();
+    if (!locked) {
+      logger.info({ event: "sync_skipped" }, "Another sync is running");
+      return;
+    }
+
+    const posClient = createPosClient({ logger });
+    const larkClient = createLarkClient({ logger });
+    const token = await larkClient.getTenantAccessToken(config.lark);
+    const syncDay = createSyncDay({
+      config,
+      posClient,
+      larkClient,
+      tableConfigService: createTableConfigService(dbClient),
+      productCostService: createProductCostService(dbClient),
+      logger,
+      token,
+    });
+
+    let success = 0;
+    let failed = 0;
+    for (const date of config.dateRange.dates) {
+      try {
+        await syncDay({ date, dryRun: config.dryRun });
+        success += 1;
+      } catch (error) {
+        failed += 1;
+        logger.error({ date, error: error.message, stack: error.stack }, "Daily sync failed");
+        throw error;
+      }
+    }
+
+    logger.info(
+      {
+        from: config.dateRange.from,
+        to: config.dateRange.to,
+        days: config.dateRange.dates.length,
+        success,
+        failed,
+      },
+      "Sync completed",
+    );
+  } finally {
+    if (locked) await dbClient.releaseAdvisoryLock();
+    await dbClient.close();
+  }
+}
+
+main().catch((error) => {
+  console.error(
+    JSON.stringify({
+      level: "fatal",
+      message: error.message,
+      stack: error.stack,
+    }),
+  );
+  process.exitCode = 1;
+});

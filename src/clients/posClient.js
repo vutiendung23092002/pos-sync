@@ -1,0 +1,109 @@
+import { getVietnamDayUnixRange } from "../utils/date.js";
+import { fetchJsonWithRetry } from "../utils/retry.js";
+
+const POS_API_BASE = "https://pos.pages.fm/api/v1";
+
+function assertObject(value, operation) {
+  if (!value || typeof value !== "object") {
+    throw new Error(`${operation} returned an unexpected response shape`);
+  }
+}
+
+export function createPosClient({ fetchImpl = fetch, logger } = {}) {
+  async function fetchAllOrdersByDay({ date, apiKey, shopId }) {
+    const { fromTs, toTs } = getVietnamDayUnixRange(date);
+    const orders = [];
+    let pageNumber = 1;
+    let expectedTotalPages = null;
+
+    while (true) {
+      const url = new URL(`${POS_API_BASE}/shops/${encodeURIComponent(shopId)}/orders`);
+      url.searchParams.set("api_key", apiKey);
+      url.searchParams.set("page_size", "200");
+      url.searchParams.set("is_filter_exclude_source", "true");
+      url.searchParams.set("include_removed", "1");
+      url.searchParams.set("option_sort", "inserted_at_desc");
+      url.searchParams.set("page_number", String(pageNumber));
+      url.searchParams.set("startDateTime", String(fromTs));
+      url.searchParams.set("endDateTime", String(toTs));
+      url.searchParams.append("order_sources", '["-3"]');
+      url.searchParams.append("order_sources", '["-9"]');
+
+      const body = await fetchJsonWithRetry(
+        url,
+        { headers: { accept: "application/json" } },
+        {
+          fetchImpl,
+          logger,
+          operation: `POS orders page ${pageNumber} for ${date}`,
+        },
+      );
+      assertObject(body, "POS orders");
+      if (body.success !== true || !Array.isArray(body.data)) {
+        throw new Error(
+          `POS orders page ${pageNumber} for ${date} is incomplete or unsuccessful`,
+        );
+      }
+
+      const responsePage = Number(body.page_number ?? pageNumber);
+      const totalPages = Number(body.total_pages);
+      if (
+        !Number.isInteger(responsePage) ||
+        responsePage !== pageNumber ||
+        !Number.isInteger(totalPages) ||
+        totalPages < 0
+      ) {
+        throw new Error(`POS orders page ${pageNumber} returned invalid pagination metadata`);
+      }
+      if (expectedTotalPages != null && totalPages !== expectedTotalPages) {
+        throw new Error(`POS total_pages changed during fetch for ${date}`);
+      }
+
+      expectedTotalPages = totalPages;
+      orders.push(...body.data);
+      if (pageNumber >= totalPages) break;
+      if (pageNumber >= 10_000) {
+        throw new Error(`POS pagination exceeded safety limit for ${date}`);
+      }
+      pageNumber += 1;
+    }
+
+    return {
+      orders,
+      complete: true,
+      pages: expectedTotalPages ?? 0,
+    };
+  }
+
+  async function fetchCategories({ apiKey, shopId }) {
+    const url = new URL(
+      `${POS_API_BASE}/shops/${encodeURIComponent(shopId)}/categories`,
+    );
+    url.searchParams.set("api_key", apiKey);
+    const body = await fetchJsonWithRetry(
+      url,
+      { headers: { accept: "application/json" } },
+      { fetchImpl, logger, operation: "POS categories" },
+    );
+    assertObject(body, "POS categories");
+    const categories = Array.isArray(body.data)
+      ? body.data
+      : Array.isArray(body.categories)
+        ? body.categories
+        : null;
+    if (!categories) {
+      throw new Error("POS categories returned an unexpected response shape");
+    }
+    return Object.fromEntries(
+      categories
+        .filter((category) => category?.id != null && category?.text)
+        .map((category) => [String(category.id), category.text]),
+    );
+  }
+
+  return { fetchAllOrdersByDay, fetchCategories };
+}
+
+export const defaultPosClient = createPosClient();
+export const fetchAllOrdersByDay = defaultPosClient.fetchAllOrdersByDay;
+export const fetchCategories = defaultPosClient.fetchCategories;

@@ -1,0 +1,55 @@
+name: Sync POS to Lark
+
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: "From date YYYY-MM-DD"
+        required: false
+      to:
+        description: "To date YYYY-MM-DD"
+        required: false
+      dry_run:
+        description: "Dry run only, do not write to Lark"
+        required: false
+        default: "false"
+  schedule:
+    - cron: "0 */2 * * *"
+
+concurrency:
+  group: pos-lark-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      POS_API_KEY: ${{ secrets.POS_API_KEY }}
+      POS_SHOP_ID: ${{ secrets.POS_SHOP_ID }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      LARK_APP_ID: ${{ secrets.LARK_APP_ID }}
+      LARK_APP_SECRET: ${{ secrets.LARK_APP_SECRET }}
+      FROM: ${{ inputs.from }}
+      TO: ${{ inputs.to }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      SYNC_LOOKBACK_DAYS: "14"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Sync POS to Lark
+        run: npm run sync
