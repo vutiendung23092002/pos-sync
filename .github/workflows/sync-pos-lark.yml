@@ -13,6 +13,14 @@ on:
         description: "Dry run only, do not write to Lark"
         required: false
         default: "false"
+      sync_env:
+        description: "Target Lark environment"
+        required: false
+        default: "production"
+        type: choice
+        options:
+          - production
+          - test
   schedule:
     - cron: "0 */2 * * *"
 
@@ -33,6 +41,7 @@ jobs:
       FROM: ${{ inputs.from }}
       TO: ${{ inputs.to }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      SYNC_ENV: ${{ inputs.sync_env || 'production' }}
       SYNC_LOOKBACK_DAYS: "14"
 
     steps:

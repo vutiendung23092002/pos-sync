@@ -13,7 +13,10 @@ export function extractPostId(fullPostId) {
 
 export function formatUtcToUnixMs(isoString) {
   if (!isoString) return null;
-  const value = Date.parse(isoString);
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(isoString)
+    ? isoString
+    : `${isoString}Z`;
+  const value = Date.parse(normalized);
   return Number.isNaN(value) ? null : value;
 }
 

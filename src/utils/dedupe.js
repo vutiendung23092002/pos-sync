@@ -33,12 +33,18 @@ export function dedupeMappedRecords(records) {
   return [...map.values()];
 }
 
-export function buildLarkUniqueIndex(records, uniqueFieldName) {
+export function buildLarkUniqueIndex(
+  records,
+  uniqueFieldName,
+  { keyResolver } = {},
+) {
   const canonicalMap = new Map();
   const duplicateRecordIds = [];
 
   for (const record of records) {
-    const key = getLarkTextField(record?.fields?.[uniqueFieldName]);
+    const key =
+      keyResolver?.(record) ??
+      getLarkTextField(record?.fields?.[uniqueFieldName]);
     if (!key) continue;
 
     const existing = canonicalMap.get(key);

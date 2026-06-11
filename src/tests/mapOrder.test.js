@@ -70,3 +70,14 @@ test("order unique key falls back to system id", () => {
   assert.equal(mapped.uniqueKey, "order:system:456");
   assert.equal(mapped.fields["Unique Key"], "order:system:456");
 });
+
+test("timezone-less POS timestamps are treated as UTC", () => {
+  const mapped = mapOrder(
+    makeOrder({ inserted_at: "2026-02-28T17:44:24.848341" }),
+    { now: () => 1 },
+  );
+  assert.equal(
+    mapped.fields["Ngày tạo đơn"],
+    Date.parse("2026-02-28T17:44:24.848341Z"),
+  );
+});

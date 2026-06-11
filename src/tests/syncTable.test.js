@@ -7,7 +7,16 @@ function createLarkClient(existingRecords) {
   const calls = { create: [], update: [], delete: [] };
   return {
     calls,
-    async searchRecords() {
+    async listFields() {
+      return [
+        { field_name: "Unique Key" },
+        { field_name: "Trạng thái" },
+      ];
+    },
+    async ensureDayKeyFormulaField() {
+      return { field_name: "Ngày TD", type: 20 };
+    },
+    async searchRecordsByTextField() {
       return existingRecords;
     },
     async batchCreateRecords(args) {
@@ -27,7 +36,8 @@ const common = {
   token: "token",
   tableConfig: { base_id: "base", table_id: "table" },
   dateFieldName: "Ngày tạo đơn",
-  dateRange: { fromMs: 1, toMs: 2 },
+  dayKeyFieldName: "Ngày TD",
+  dayKeyValue: "2026.03.01",
   uniqueFieldName: "Unique Key",
 };
 
@@ -78,4 +88,72 @@ test("missing-record deletion is skipped when POS fetch is incomplete", async ()
     posFetchComplete: false,
   });
   assert.equal(summary.deleteCount, 0);
+});
+
+test("missing Lark fields fail before any write", async () => {
+  const client = createLarkClient([]);
+  client.listFields = async () => [{ field_name: "Unique Key" }];
+  await assert.rejects(
+    syncTable({
+      ...common,
+      larkClient: client,
+      mappedRecords: [
+        {
+          uniqueKey: "order:1",
+          fields: {
+            "Unique Key": "order:1",
+            "Last Synced At": 1,
+          },
+        },
+      ],
+      dryRun: false,
+      posFetchComplete: true,
+    }),
+    /missing fields: Last Synced At/,
+  );
+  assert.deepEqual(client.calls, { create: [], update: [], delete: [] });
+});
+
+test("legacy record without Unique Key is deduplicated by mapped identity", async () => {
+  const client = createLarkClient([
+    {
+      record_id: "legacy",
+      created_time: "100",
+      fields: { "Mã tuỳ chỉnh": "603579" },
+    },
+    {
+      record_id: "newer",
+      created_time: "200",
+      fields: {
+        "Unique Key": "order:90085036889346",
+        "Mã tuỳ chỉnh": "603579",
+      },
+    },
+  ]);
+  client.listFields = async () => [
+    { field_name: "Unique Key" },
+    { field_name: "Mã tuỳ chỉnh" },
+    { field_name: "Trạng thái" },
+  ];
+  const summary = await syncTable({
+    ...common,
+    larkClient: client,
+    mappedRecords: [
+      {
+        uniqueKey: "order:90085036889346",
+        fields: {
+          "Unique Key": "order:90085036889346",
+          "Mã tuỳ chỉnh": "603579",
+          "Trạng thái": "Đã nhận",
+        },
+      },
+    ],
+    legacyIdentityFieldNames: ["Mã tuỳ chỉnh"],
+    dryRun: true,
+    posFetchComplete: true,
+  });
+  assert.equal(summary.updateCount, 1);
+  assert.equal(summary.createCount, 0);
+  assert.equal(summary.duplicateDeleteCount, 1);
+  assert.equal(summary.deleteCount, 1);
 });

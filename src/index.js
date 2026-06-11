@@ -8,9 +8,13 @@ import { createTableConfigService } from "./services/tableConfigService.js";
 import { createLogger } from "./utils/logger.js";
 
 async function main() {
+  const syncStartedAt = Date.now();
   const config = loadConfig();
-  const logger = createLogger(config.logLevel);
-  const dbClient = createDbClient({ connectionString: config.databaseUrl });
+  const logger = createLogger(config.logLevel, config.logPretty);
+  const dbClient = createDbClient({
+    connectionString: config.databaseUrl,
+    sslRejectUnauthorized: config.databaseSslRejectUnauthorized,
+  });
   let locked = false;
 
   try {
@@ -19,6 +23,20 @@ async function main() {
       logger.info({ event: "sync_skipped" }, "Another sync is running");
       return;
     }
+
+    logger.info(
+      {
+        sync_environment: config.syncEnvironment,
+        order_table_type: config.tableTypes.order,
+        item_table_type: config.tableTypes.item,
+        dry_run: config.dryRun,
+        from: config.dateRange.from,
+        to: config.dateRange.to,
+        total_days: config.dateRange.dates.length,
+        step: "sync_start",
+      },
+      "Starting sync",
+    );
 
     const posClient = createPosClient({ logger });
     const larkClient = createLarkClient({ logger });
@@ -35,9 +53,14 @@ async function main() {
 
     let success = 0;
     let failed = 0;
-    for (const date of config.dateRange.dates) {
+    for (const [index, date] of config.dateRange.dates.entries()) {
       try {
-        await syncDay({ date, dryRun: config.dryRun });
+        await syncDay({
+          date,
+          dryRun: config.dryRun,
+          dayIndex: index + 1,
+          totalDays: config.dateRange.dates.length,
+        });
         success += 1;
       } catch (error) {
         failed += 1;
@@ -53,6 +76,8 @@ async function main() {
         days: config.dateRange.dates.length,
         success,
         failed,
+        elapsed_ms: Date.now() - syncStartedAt,
+        step: "sync_complete",
       },
       "Sync completed",
     );

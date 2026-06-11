@@ -1,6 +1,6 @@
 import { mapOrder } from "../mappers/mapOrder.js";
 import { mapOrderItems } from "../mappers/mapOrderItem.js";
-import { getMonthYear, getVietnamDayUnixRange } from "../utils/date.js";
+import { getMonthYear } from "../utils/date.js";
 import { syncTable } from "./syncTable.js";
 
 function collectSkus(orders) {
@@ -23,9 +23,28 @@ export function createSyncDay({
   logger,
   token,
 }) {
-  return async function syncDay({ date, dryRun = config.dryRun }) {
-    const dateRange = getVietnamDayUnixRange(date);
+  return async function syncDay({
+    date,
+    dryRun = config.dryRun,
+    dayIndex = 1,
+    totalDays = 1,
+  }) {
+    const dayStartedAt = Date.now();
     const { month, year } = getMonthYear(date);
+    const dayKeyValue = date.replaceAll("-", ".");
+    const dayProgress = `${dayIndex}/${totalDays}`;
+
+    logger.info(
+      {
+        date,
+        day_index: dayIndex,
+        total_days: totalDays,
+        day_progress: dayProgress,
+        dry_run: dryRun,
+        step: "day_start",
+      },
+      `Day ${dayProgress} started`,
+    );
 
     const categoryMap = await posClient.fetchCategories(config.pos);
     const posResult = await posClient.fetchAllOrdersByDay({
@@ -38,47 +57,81 @@ export function createSyncDay({
 
     const [orderTableConfig, itemTableConfig] = await Promise.all([
       tableConfigService.getLarkTableConfig({
-        type: "facebook_order_td",
+        type: config.tableTypes.order,
         month,
         year,
       }),
       tableConfigService.getLarkTableConfig({
-        type: "facebook_order_item_td",
+        type: config.tableTypes.item,
         month,
         year,
       }),
     ]);
-    const costMap = await productCostService.getProductCostMap(
-      collectSkus(posResult.orders),
+    logger.info(
+      {
+        date,
+        day_progress: dayProgress,
+        step: "table_config",
+        order_table_id: orderTableConfig.table_id,
+        item_table_id: itemTableConfig.table_id,
+      },
+      "Lark table config resolved",
     );
+    const skus = collectSkus(posResult.orders);
+    const costMap = await productCostService.getProductCostMap(skus);
     const mappedOrders = posResult.orders.map((order) => mapOrder(order));
     const mappedItems = posResult.orders.flatMap((order) =>
       mapOrderItems(order, { categoryMap, costMap }),
     );
+    logger.info(
+      {
+        date,
+        day_progress: dayProgress,
+        step: "mapping_complete",
+        pos_orders: posResult.orders.length,
+        mapped_orders: mappedOrders.length,
+        mapped_items: mappedItems.length,
+        requested_skus: skus.length,
+        matched_costs: Object.keys(costMap).length,
+      },
+      "POS records mapped",
+    );
 
+    logger.info(
+      { date, day_progress: dayProgress, step: "order_sync_start" },
+      "Order table sync started",
+    );
     const orderSummary = await syncTable({
-      tableName: "facebook_order_td",
+      tableName: config.tableTypes.order,
       larkClient,
       token,
       tableConfig: orderTableConfig,
       dateFieldName: "Ngày tạo đơn",
-      dateRange,
+      dayKeyFieldName: "Ngày TD",
+      dayKeyValue,
       mappedRecords: mappedOrders,
       uniqueFieldName: "Unique Key",
+      legacyIdentityFieldNames: ["Mã tuỳ chỉnh", "ID"],
       deleteStatuses: ["Đã xoá"],
       dryRun,
       posFetchComplete: posResult.complete,
       logger,
     });
+    logger.info(
+      { date, day_progress: dayProgress, step: "item_sync_start" },
+      "Item table sync started",
+    );
     const itemSummary = await syncTable({
-      tableName: "facebook_order_item_td",
+      tableName: config.tableTypes.item,
       larkClient,
       token,
       tableConfig: itemTableConfig,
       dateFieldName: "Thời gian tạo đơn",
-      dateRange,
+      dayKeyFieldName: "Ngày TD",
+      dayKeyValue,
       mappedRecords: mappedItems,
       uniqueFieldName: "Unique Key",
+      legacyIdentityFieldNames: ["ID"],
       deleteStatuses: ["Đã xoá", "Đã huỷ"],
       dryRun,
       posFetchComplete: posResult.complete,
@@ -87,6 +140,7 @@ export function createSyncDay({
 
     const summary = {
       date,
+      sync_environment: config.syncEnvironment,
       pos_orders: posResult.orders.length,
       order: {
         create: orderSummary.createCount,
@@ -101,8 +155,11 @@ export function createSyncDay({
         duplicates_deleted: itemSummary.duplicateDeleteCount,
       },
       dry_run: dryRun,
+      elapsed_ms: Date.now() - dayStartedAt,
+      day_progress: dayProgress,
+      step: "day_complete",
     };
-    logger.info(summary, "Daily sync completed");
+    logger.info(summary, `Day ${dayProgress} completed`);
     return summary;
   };
 }

@@ -10,6 +10,17 @@ const REQUIRED_ENV = [
   "LARK_APP_SECRET",
 ];
 
+const TABLE_TYPES = {
+  production: {
+    order: "facebook_order_td",
+    item: "facebook_order_item_td",
+  },
+  test: {
+    order: "facebook_order_td_test",
+    item: "facebook_order_item_td_test",
+  },
+};
+
 function parseBoolean(value, name) {
   if (value == null || value === "") return false;
   const normalized = String(value).trim().toLowerCase();
@@ -24,6 +35,14 @@ function parsePositiveInteger(value, name, fallback) {
     throw new Error(`${name} must be a non-negative integer`);
   }
   return parsed;
+}
+
+function parseSyncEnvironment(value) {
+  const normalized = String(value || "production").trim().toLowerCase();
+  if (!TABLE_TYPES[normalized]) {
+    throw new Error("SYNC_ENV must be production or test");
+  }
+  return normalized;
 }
 
 export function loadConfig(env = process.env) {
@@ -42,6 +61,7 @@ export function loadConfig(env = process.env) {
     to: env.TO,
     lookbackDays: syncLookbackDays,
   });
+  const syncEnvironment = parseSyncEnvironment(env.SYNC_ENV);
 
   return {
     pos: {
@@ -49,13 +69,20 @@ export function loadConfig(env = process.env) {
       shopId: env.POS_SHOP_ID,
     },
     databaseUrl: env.DATABASE_URL,
+    databaseSslRejectUnauthorized: parseBoolean(
+      env.DATABASE_SSL_REJECT_UNAUTHORIZED ?? "true",
+      "DATABASE_SSL_REJECT_UNAUTHORIZED",
+    ),
     lark: {
       appId: env.LARK_APP_ID,
       appSecret: env.LARK_APP_SECRET,
     },
     dateRange,
     dryRun: parseBoolean(env.DRY_RUN, "DRY_RUN"),
+    syncEnvironment,
+    tableTypes: TABLE_TYPES[syncEnvironment],
     syncLookbackDays,
     logLevel: env.LOG_LEVEL || "info",
+    logPretty: parseBoolean(env.LOG_PRETTY, "LOG_PRETTY"),
   };
 }

@@ -1,10 +1,26 @@
 import pg from "pg";
 
 const { Pool } = pg;
-const ADVISORY_LOCK_ID = 987654321;
+const ADVISORY_LOCK_ID = 987654322;
 
-export function createDbClient({ connectionString }) {
-  const pool = new Pool({ connectionString });
+function prepareConnectionString(connectionString, sslRejectUnauthorized) {
+  if (sslRejectUnauthorized) return connectionString;
+
+  const url = new URL(connectionString);
+  for (const parameter of ["sslmode", "sslcert", "sslkey", "sslrootcert"]) {
+    url.searchParams.delete(parameter);
+  }
+  return url.toString();
+}
+
+export function createDbClient({ connectionString, sslRejectUnauthorized = true }) {
+  const pool = new Pool({
+    connectionString: prepareConnectionString(
+      connectionString,
+      sslRejectUnauthorized,
+    ),
+    ssl: { rejectUnauthorized: sslRejectUnauthorized },
+  });
   let lockConnection = null;
 
   async function query(text, values = []) {
@@ -54,17 +70,20 @@ export function createDbClient({ connectionString }) {
     if (lockConnection) throw new Error("Advisory lock is already held by this process");
     const client = await pool.connect();
     try {
+      await client.query("BEGIN");
       const result = await client.query(
-        "SELECT pg_try_advisory_lock($1) AS locked;",
+        "SELECT pg_try_advisory_xact_lock($1) AS locked;",
         [ADVISORY_LOCK_ID],
       );
       if (result.rows[0]?.locked !== true) {
+        await client.query("ROLLBACK");
         client.release();
         return false;
       }
       lockConnection = client;
       return true;
     } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
       client.release();
       throw error;
     }
@@ -75,7 +94,10 @@ export function createDbClient({ connectionString }) {
     const client = lockConnection;
     lockConnection = null;
     try {
-      await client.query("SELECT pg_advisory_unlock($1);", [ADVISORY_LOCK_ID]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
     } finally {
       client.release();
     }

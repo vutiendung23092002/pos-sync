@@ -48,17 +48,53 @@ Việt Nam trừ `SYNC_LOOKBACK_DAYS` đến ngày hiện tại. Mặc định l
 | `POS_API_KEY` | Có | PagesFM POS API key |
 | `POS_SHOP_ID` | Có | Shop ID dùng trong POS endpoint |
 | `DATABASE_URL` | Có | PostgreSQL connection string |
+| `DATABASE_SSL_REJECT_UNAUTHORIZED` | Không | `true` mặc định; chỉ đặt `false` khi môi trường Supabase báo lỗi certificate chain |
 | `LARK_APP_ID` | Có | Lark internal app ID |
 | `LARK_APP_SECRET` | Có | Lark internal app secret |
+| `SYNC_ENV` | Không | `production` mặc định; dùng `test` để chỉ ghi vào bảng test |
 | `FROM` | Không | Ngày đầu `YYYY-MM-DD`; phải đi cùng `TO` |
 | `TO` | Không | Ngày cuối `YYYY-MM-DD`; phải đi cùng `FROM` |
 | `DRY_RUN` | Không | `false` mặc định |
 | `SYNC_LOOKBACK_DAYS` | Không | `14` mặc định |
 | `LOG_LEVEL` | Không | Pino log level, mặc định `info` |
+| `LOG_PRETTY` | Không | `true` để log local có màu và dễ đọc; Actions nên giữ `false` |
 
 Table ID và Base ID được đọc theo tháng/năm từ
 `han_lark_base.tables`. Giá vốn được đọc từ
 `kiot_legiahan.product_cost` bằng parameterized query.
+
+## Chạy vào bảng test
+
+Tạo một Lark Base test riêng hoặc hai table test riêng có đầy đủ field giống
+production. Sau đó thêm config test vào Supabase:
+
+```sql
+INSERT INTO han_lark_base.tables
+  (base_id, table_id, type, month, year)
+VALUES
+  ('BASE_ID_TEST', 'TABLE_ID_ORDER_TEST', 'facebook_order_td_test', 6, 2026),
+  ('BASE_ID_TEST', 'TABLE_ID_ITEM_TEST', 'facebook_order_item_td_test', 6, 2026);
+```
+
+Chạy test có ghi dữ liệu:
+
+```powershell
+$env:SYNC_ENV="test"
+$env:FROM="2026-06-01"
+$env:TO="2026-06-01"
+$env:DRY_RUN="false"
+npm.cmd run sync
+```
+
+Với `SYNC_ENV=test`, chương trình chỉ query hai type:
+
+```txt
+facebook_order_td_test
+facebook_order_item_td_test
+```
+
+Nếu thiếu config test đúng tháng/năm, chương trình dừng thay vì fallback sang
+production. Để quay lại production, đặt `SYNC_ENV=production`.
 
 ## GitHub Actions
 
@@ -75,8 +111,9 @@ LARK_APP_SECRET
 ```
 
 Workflow hỗ trợ `workflow_dispatch` với `from`, `to`, `dry_run`; lịch tự động chạy
-mỗi 2 giờ. `concurrency.group=pos-lark-sync` và PostgreSQL advisory lock cùng ngăn
-hai tiến trình chạy chồng nhau.
+mỗi 2 giờ. `concurrency.group=pos-lark-sync` và PostgreSQL transaction advisory
+lock cùng ngăn hai tiến trình chạy chồng nhau. Transaction lock tương thích với
+Supabase Transaction Pooler và tự nhả khi transaction kết thúc hoặc connection mất.
 
 ## Trường Lark bắt buộc
 
@@ -86,6 +123,7 @@ Technical:
 
 ```txt
 Unique Key
+Ngày TD
 Last Synced At
 ```
 
@@ -141,6 +179,7 @@ Technical:
 ```txt
 Unique Key
 Order Unique Key
+Ngày TD
 Last Synced At
 ```
 
@@ -179,6 +218,16 @@ Ad ID
 Các field ngày Lark phải là Date field nhận Unix milliseconds. `Danh mục` phải
 chấp nhận mảng giá trị.
 
+`Ngày TD` phải là Formula field trả về text `YYYY.MM.DD`:
+
+```txt
+Order: TEXT([Ngày tạo đơn], "YYYY.MM.DD")
+Item:  TEXT([Thời gian tạo đơn], "YYYY.MM.DD")
+```
+
+Code tự tạo Formula field này khi chạy ghi thật nếu field chưa tồn tại. Dry-run
+chỉ validate schema và không thay đổi Lark.
+
 ## Chống trùng
 
 - Order key: `order:{order_id}`, fallback `order:system:{system_id}`.
@@ -196,11 +245,22 @@ chấp nhận mảng giá trị.
 - Xóa duplicate Lark theo `Unique Key`.
 - Xóa record Lark không còn trong POS chỉ khi toàn bộ pagination POS của ngày đã
   hoàn tất thành công.
+- Record Lark được query trực tiếp theo Formula field, ví dụ
+  `CurrentValue.[Ngày TD] = "2026.03.23"`. Mỗi ngày chỉ paginate record của đúng
+  ngày đó, không scan lại toàn bộ bảng tháng.
 - `DRY_RUN=true` chỉ lập và log kế hoạch, không gọi batch write.
 
 ## Vận hành
 
+- Log có `step`, tiến độ ngày, pagination, batch progress, số record và
+  `elapsed_ms`. Đặt `LOG_PRETTY=true` khi chạy local.
 - Mốc ngày POS luôn được tính bằng UTC+7, không phụ thuộc timezone runner.
+- POS timestamp không có hậu tố timezone được hiểu là UTC trước khi chuyển sang
+  Unix milliseconds; Lark sẽ hiển thị theo timezone UTC+7 của Base.
+- POS API loại nguồn `-3` và `-9` ngay tại server bằng hai query parameter
+  `order_sources` lặp riêng cùng `is_filter_exclude_source=true`, giúp tránh tải
+  phần lớn đơn Shopee/TikTok. Sau đó client vẫn giữ guard chỉ nhận
+  `order_sources_name=Facebook` hoặc nguồn rỗng để loại response ngoại lệ.
 - Sync ngày chạy tuần tự để giảm rate limit.
 - HTTP 429, 5xx và lỗi mạng retry tối đa 5 lần với backoff 1/2/4/8/16 giây;
   `Retry-After` được ưu tiên.

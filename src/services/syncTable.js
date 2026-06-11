@@ -7,26 +7,98 @@ export async function syncTable({
   token,
   tableConfig,
   dateFieldName,
-  dateRange,
+  dayKeyFieldName = "Ngày TD",
+  dayKeyValue,
   mappedRecords,
   uniqueFieldName = "Unique Key",
+  legacyIdentityFieldNames = [],
   deleteStatuses = [],
   dryRun = false,
   posFetchComplete = false,
   logger,
 }) {
+  const startedAt = Date.now();
   const posRecords = dedupeMappedRecords(mappedRecords);
-  const larkRecords = await larkClient.searchRecords({
+  logger?.info(
+    {
+      step: "table_prepare",
+      table_name: tableName,
+      mapped_records: mappedRecords.length,
+      deduped_pos_records: posRecords.length,
+      pos_duplicates_removed: mappedRecords.length - posRecords.length,
+    },
+    "Table records prepared",
+  );
+  const requiredFieldNames = [
+    ...new Set(posRecords.flatMap((record) => Object.keys(record.fields || {}))),
+  ];
+  await larkClient.ensureDayKeyFormulaField({
     token,
     baseId: tableConfig.base_id,
     tableId: tableConfig.table_id,
+    dayKeyFieldName,
     dateFieldName,
-    fromMs: dateRange.fromMs,
-    toMs: dateRange.toMs,
+    createIfMissing: !dryRun,
   });
+  const tableFields = await larkClient.listFields({
+    token,
+    baseId: tableConfig.base_id,
+    tableId: tableConfig.table_id,
+  });
+  const existingFieldNames = new Set(
+    tableFields.map((field) => field?.field_name).filter(Boolean),
+  );
+  const missingFieldNames = requiredFieldNames.filter(
+    (fieldName) => !existingFieldNames.has(fieldName),
+  );
+  if (missingFieldNames.length) {
+    throw new Error(
+      `Lark table ${tableName} (${tableConfig.table_id}) is missing fields: ${missingFieldNames.join(", ")}`,
+    );
+  }
+
+  const larkRecords = await larkClient.searchRecordsByTextField({
+    token,
+    baseId: tableConfig.base_id,
+    tableId: tableConfig.table_id,
+    fieldName: dayKeyFieldName,
+    value: dayKeyValue,
+  });
+  logger?.info(
+    {
+      step: "table_scope",
+      table_name: tableName,
+      lark_day_records: larkRecords.length,
+      day_key_field: dayKeyFieldName,
+      day_key_value: dayKeyValue,
+    },
+    "Lark day records fetched",
+  );
+  const mappedLegacyIndexes = new Map(
+    legacyIdentityFieldNames.map((fieldName) => {
+      const index = new Map();
+      for (const record of posRecords) {
+        const value = getLarkTextField(record.fields?.[fieldName]);
+        if (value) index.set(value, record.uniqueKey);
+      }
+      return [fieldName, index];
+    }),
+  );
   const { canonicalMap, duplicateRecordIds } = buildLarkUniqueIndex(
     larkRecords,
     uniqueFieldName,
+    {
+      keyResolver: (record) => {
+        const uniqueKey = getLarkTextField(record?.fields?.[uniqueFieldName]);
+        if (uniqueKey) return uniqueKey;
+        for (const fieldName of legacyIdentityFieldNames) {
+          const value = getLarkTextField(record?.fields?.[fieldName]);
+          const mappedKey = mappedLegacyIndexes.get(fieldName)?.get(value);
+          if (mappedKey) return mappedKey;
+        }
+        return null;
+      },
+    },
   );
   const deleteStatusSet = new Set(deleteStatuses);
   const posKeySet = new Set(posRecords.map((record) => record.uniqueKey));
@@ -72,19 +144,14 @@ export async function syncTable({
       update: toUpdate.length,
       delete: deleteIds.length,
       duplicates_delete: duplicateRecordIds.length,
+      pos_records: posRecords.length,
+      lark_day_records: larkRecords.length,
+      step: "table_plan",
     },
     "Lark sync plan",
   );
 
   if (!dryRun) {
-    if (deleteIds.length) {
-      await larkClient.batchDeleteRecords({
-        token,
-        baseId: tableConfig.base_id,
-        tableId: tableConfig.table_id,
-        recordIds: deleteIds,
-      });
-    }
     if (toUpdate.length) {
       await larkClient.batchUpdateRecords({
         token,
@@ -101,9 +168,17 @@ export async function syncTable({
         records: toCreate,
       });
     }
+    if (deleteIds.length) {
+      await larkClient.batchDeleteRecords({
+        token,
+        baseId: tableConfig.base_id,
+        tableId: tableConfig.table_id,
+        recordIds: deleteIds,
+      });
+    }
   }
 
-  return {
+  const summary = {
     tableName,
     posRecords: posRecords.length,
     larkRecords: larkRecords.length,
@@ -111,5 +186,19 @@ export async function syncTable({
     updateCount: toUpdate.length,
     deleteCount: deleteIds.length,
     duplicateDeleteCount: duplicateRecordIds.length,
+    elapsedMs: Date.now() - startedAt,
   };
+  logger?.info(
+    {
+      step: "table_complete",
+      table_name: tableName,
+      dry_run: dryRun,
+      create: summary.createCount,
+      update: summary.updateCount,
+      delete: summary.deleteCount,
+      elapsed_ms: summary.elapsedMs,
+    },
+    "Table sync completed",
+  );
+  return summary;
 }
