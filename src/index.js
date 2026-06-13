@@ -10,7 +10,7 @@ import { createLogger } from "./utils/logger.js";
 async function main() {
   const syncStartedAt = Date.now();
   const config = loadConfig();
-  const logger = createLogger(config.logLevel, config.logPretty);
+  const logger = createLogger(config.logLevel, config.logFormat);
   const dbClient = createDbClient({
     connectionString: config.databaseUrl,
     sslRejectUnauthorized: config.databaseSslRejectUnauthorized,
@@ -40,7 +40,7 @@ async function main() {
         total_days: config.dateRange.dates.length,
         step: "sync_start",
       },
-      "Starting sync",
+      `Sync start | ${config.syncMode}/${config.syncEnvironment} | ${config.dateRange.from} -> ${config.dateRange.to} | ${config.dateRange.dates.length} days | config=${config.tableConfigSource} | ${config.dryRun ? "DRY RUN" : "WRITE"}`,
     );
 
     const posClient = createPosClient({ logger });
@@ -87,7 +87,7 @@ async function main() {
         elapsed_ms: Date.now() - syncStartedAt,
         step: "sync_complete",
       },
-      "Sync completed",
+      `Sync complete | ${success}/${config.dateRange.dates.length} days | failed=${failed} | ${((Date.now() - syncStartedAt) / 60_000).toFixed(1)}m`,
     );
   } finally {
     if (locked) await dbClient.releaseAdvisoryLock();

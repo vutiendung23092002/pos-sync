@@ -63,8 +63,8 @@ theo giờ Việt Nam trừ `SYNC_LOOKBACK_DAYS` đến hôm qua. Mặc định 
 | `TO` | Không | Ngày cuối `YYYY-MM-DD`; phải đi cùng `FROM` |
 | `DRY_RUN` | Không | `false` mặc định |
 | `SYNC_LOOKBACK_DAYS` | Không | `14` mặc định |
-| `LOG_LEVEL` | Không | Pino log level, mặc định `info` |
-| `LOG_PRETTY` | Không | `true` để log local có màu và dễ đọc; Actions nên giữ `false` |
+| `LOG_LEVEL` | Không | Pino log level, mặc định `info`; dùng `debug` để xem pagination/batch |
+| `LOG_FORMAT` | Không | `compact` mặc định; có thể dùng `pretty` hoặc `json` |
 
 Table ID và Base ID mặc định được đọc từ
 `src/config/larkTableMapping.js`. Đặt `TABLE_CONFIG_SOURCE=database` để đọc từ
@@ -402,8 +402,9 @@ chỉ validate schema và không thay đổi Lark.
 
 ## Vận hành
 
-- Log có `step`, tiến độ ngày, pagination, batch progress, số record và
-  `elapsed_ms`. Đặt `LOG_PRETTY=true` khi chạy local.
+- `LOG_FORMAT=compact` chỉ in sync start, kế hoạch có thay đổi, cảnh báo,
+  kết quả từng ngày và sync complete. Dùng `LOG_LEVEL=debug` với
+  `LOG_FORMAT=pretty` hoặc `json` để xem pagination, mapping, table scope và batch.
 - Mốc ngày POS luôn được tính bằng UTC+7, không phụ thuộc timezone runner.
 - POS timestamp không có hậu tố timezone được hiểu là UTC trước khi chuyển sang
   Unix milliseconds; Lark sẽ hiển thị theo timezone UTC+7 của Base.

@@ -35,7 +35,7 @@ export function createPosClient({ fetchImpl = fetch, logger } = {}) {
       url.searchParams.append("order_sources", '["-3"]');
       url.searchParams.append("order_sources", '["-9"]');
 
-      logger?.info(
+      logger?.debug(
         {
           date,
           step: "pos_page_start",
@@ -76,7 +76,7 @@ export function createPosClient({ fetchImpl = fetch, logger } = {}) {
 
       expectedTotalPages = totalPages;
       orders.push(...body.data);
-      logger?.info(
+      logger?.debug(
         {
           date,
           step: "pos_page",
@@ -95,7 +95,7 @@ export function createPosClient({ fetchImpl = fetch, logger } = {}) {
     }
 
     const filteredOrders = orders.filter(isAllowedOrderSource);
-    logger?.info(
+    logger?.debug(
       {
         date,
         fetched_orders: orders.length,
@@ -141,7 +141,7 @@ export function createPosClient({ fetchImpl = fetch, logger } = {}) {
         .filter((category) => category?.id != null && category?.text)
         .map((category) => [String(category.id), category.text]),
     );
-    logger?.info(
+    logger?.debug(
       {
         step: "pos_categories",
         categories: Object.keys(categoryMap).length,

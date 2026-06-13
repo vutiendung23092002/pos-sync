@@ -76,7 +76,7 @@ export function createLarkClient({ fetchImpl = fetch, logger, batchSize = 100 } 
         throw new Error(`Lark search ${tableId} returned invalid items`);
       }
       records.push(...items);
-      logger?.info(
+      logger?.debug(
         {
           step: "lark_scan_page",
           table_id: tableId,
@@ -94,7 +94,7 @@ export function createLarkClient({ fetchImpl = fetch, logger, batchSize = 100 } 
       pageToken = data.has_more === true ? data.page_token : null;
     } while (pageToken);
 
-    logger?.info(
+    logger?.debug(
       {
         step: "lark_scan_complete",
         table_id: tableId,
@@ -242,7 +242,7 @@ export function createLarkClient({ fetchImpl = fetch, logger, batchSize = 100 } 
         field_name: dayKeyFieldName,
         source_field: dateFieldName,
       },
-      "Lark day key formula field created",
+      `Created Lark formula field ${dayKeyFieldName} | table=${tableId}`,
     );
     return data.field;
   }
@@ -298,7 +298,7 @@ export function createLarkClient({ fetchImpl = fetch, logger, batchSize = 100 } 
           table_id: tableId,
           field_name: fieldName,
         },
-        "Missing Lark field created from schema",
+        `Created Lark field ${fieldName} | table=${tableId}`,
       );
     }
     return missingNames;
@@ -340,7 +340,7 @@ export function createLarkClient({ fetchImpl = fetch, logger, batchSize = 100 } 
         throw new Error(`Lark filter ${tableId} returned invalid items`);
       }
       records.push(...items);
-      logger?.info(
+      logger?.debug(
         {
           step: "lark_day_page",
           table_id: tableId,
@@ -381,7 +381,7 @@ export function createLarkClient({ fetchImpl = fetch, logger, batchSize = 100 } 
         `Lark ${path} ${tableId}`,
       );
       results.push(data);
-      logger?.info(
+      logger?.debug(
         {
           step: "lark_batch",
           operation: path,
@@ -396,7 +396,7 @@ export function createLarkClient({ fetchImpl = fetch, logger, batchSize = 100 } 
         `Lark ${path} batch ${index + 1}/${batches.length} completed`,
       );
     }
-    logger?.info(
+    logger?.debug(
       {
         step: "lark_batches_complete",
         operation: path,

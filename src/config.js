@@ -78,6 +78,18 @@ function parseSyncMode(value) {
   return normalized;
 }
 
+function parseLogFormat(value, legacyPrettyValue) {
+  const fallback =
+    String(legacyPrettyValue || "").trim().toLowerCase() === "true"
+      ? "pretty"
+      : "compact";
+  const normalized = String(value || fallback).trim().toLowerCase();
+  if (!["compact", "pretty", "json"].includes(normalized)) {
+    throw new Error("LOG_FORMAT must be compact, pretty, or json");
+  }
+  return normalized;
+}
+
 export function loadConfig(env = process.env) {
   const missing = REQUIRED_ENV.filter((name) => !env[name]?.trim());
   if (missing.length) {
@@ -121,6 +133,6 @@ export function loadConfig(env = process.env) {
     tableTypes: TABLE_TYPES[syncEnvironment],
     syncLookbackDays,
     logLevel: env.LOG_LEVEL || "info",
-    logPretty: parseBoolean(env.LOG_PRETTY, "LOG_PRETTY"),
+    logFormat: parseLogFormat(env.LOG_FORMAT, env.LOG_PRETTY),
   };
 }

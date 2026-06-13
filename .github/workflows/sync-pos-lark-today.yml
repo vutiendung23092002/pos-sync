@@ -28,7 +28,7 @@ jobs:
       TABLE_CONFIG_SOURCE: ${{ vars.TABLE_CONFIG_SOURCE || 'mapping' }}
       DATABASE_SSL_REJECT_UNAUTHORIZED: ${{ vars.DATABASE_SSL_REJECT_UNAUTHORIZED || 'false' }}
       LOG_LEVEL: ${{ vars.LOG_LEVEL || 'info' }}
-      LOG_PRETTY: "false"
+      LOG_FORMAT: ${{ vars.LOG_FORMAT || 'compact' }}
 
     steps:
       - name: Checkout

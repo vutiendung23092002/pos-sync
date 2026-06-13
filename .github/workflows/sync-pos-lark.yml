@@ -47,7 +47,7 @@ jobs:
       SYNC_LOOKBACK_DAYS: ${{ vars.SYNC_LOOKBACK_DAYS || '14' }}
       DATABASE_SSL_REJECT_UNAUTHORIZED: ${{ vars.DATABASE_SSL_REJECT_UNAUTHORIZED || 'false' }}
       LOG_LEVEL: ${{ vars.LOG_LEVEL || 'info' }}
-      LOG_PRETTY: "false"
+      LOG_FORMAT: ${{ vars.LOG_FORMAT || 'compact' }}
 
     steps:
       - name: Checkout

@@ -97,6 +97,29 @@ function totalSummaries(summaries) {
   );
 }
 
+function totalDayActions(summary) {
+  return ["td", "cd"].reduce(
+    (total, periodType) => {
+      for (const recordType of ["order", "item"]) {
+        const current = summary[periodType][recordType];
+        total.create += current.create;
+        total.update += current.update;
+        total.unchanged += current.unchanged;
+        total.delete += current.delete;
+        total.duplicatesDeleted += current.duplicates_deleted;
+      }
+      return total;
+    },
+    {
+      create: 0,
+      update: 0,
+      unchanged: 0,
+      delete: 0,
+      duplicatesDeleted: 0,
+    },
+  );
+}
+
 export function createSyncDay({
   config,
   posClient,
@@ -116,7 +139,7 @@ export function createSyncDay({
     const dayKeyValue = date.replaceAll("-", ".");
     const dayProgress = `${dayIndex}/${totalDays}`;
 
-    logger.info(
+    logger.debug(
       {
         date,
         day_index: dayIndex,
@@ -188,7 +211,7 @@ export function createSyncDay({
       periodFieldName: "Tháng CD",
     });
 
-    logger.info(
+    logger.debug(
       {
         date,
         day_progress: dayProgress,
@@ -313,7 +336,11 @@ export function createSyncDay({
       day_progress: dayProgress,
       step: "day_complete",
     };
-    logger.info(summary, `Day ${dayProgress} completed`);
+    const actions = totalDayActions(summary);
+    logger.info(
+      summary,
+      `Day ${dayProgress} | ${date} | POS ${summary.pos_orders} | C ${actions.create} U ${actions.update} same ${actions.unchanged} D ${actions.delete} dup ${actions.duplicatesDeleted} | ${(summary.elapsed_ms / 1000).toFixed(1)}s`,
+    );
     return summary;
   };
 }

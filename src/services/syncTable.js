@@ -24,7 +24,7 @@ export async function syncTable({
 }) {
   const startedAt = Date.now();
   const posRecords = dedupeMappedRecords(mappedRecords);
-  logger?.info(
+  logger?.debug(
     {
       step: "table_prepare",
       table_name: tableName,
@@ -108,7 +108,7 @@ export async function syncTable({
     fieldName: dayKeyFieldName,
     value: dayKeyValue,
   });
-  logger?.info(
+  logger?.debug(
     {
       step: "table_scope",
       table_name: tableName,
@@ -189,7 +189,7 @@ export async function syncTable({
   } else {
     logger?.warn(
       { table_name: tableName },
-      "POS fetch was not confirmed complete; missing-record deletion skipped",
+      "Skipped missing-record deletion because POS fetch was incomplete",
     );
   }
   if (unidentifiedLarkPreservedCount > 0) {
@@ -198,7 +198,7 @@ export async function syncTable({
         table_name: tableName,
         unidentified_lark_preserved: unidentifiedLarkPreservedCount,
       },
-      "Lark records without a resolvable identity were preserved",
+      "Preserved Lark records without a resolvable identity",
     );
   }
 
@@ -212,7 +212,11 @@ export async function syncTable({
       `Data integrity error: records planned for both update and delete: ${conflictingRecordIds.join(", ")}`,
     );
   }
-  logger?.info(
+  const planLogger =
+    toCreate.length || toUpdate.length || deleteIds.length
+      ? logger?.info.bind(logger)
+      : logger?.debug.bind(logger);
+  planLogger?.(
     {
       table_name: tableName,
       dry_run: dryRun,
@@ -226,7 +230,7 @@ export async function syncTable({
       lark_day_records: larkRecords.length,
       step: "table_plan",
     },
-    "Lark sync plan",
+    `Plan ${tableName} | C ${toCreate.length} U ${toUpdate.length} same ${unchangedCount} D ${deleteIds.length} dup ${duplicateRecordIds.length}`,
   );
 
   if (!dryRun) {
@@ -268,7 +272,7 @@ export async function syncTable({
     unidentifiedLarkPreservedCount,
     elapsedMs: Date.now() - startedAt,
   };
-  logger?.info(
+  logger?.debug(
     {
       step: "table_complete",
       table_name: tableName,

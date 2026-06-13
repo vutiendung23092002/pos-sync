@@ -20,6 +20,7 @@ test("production environment uses production table types by default", () => {
   assert.equal(config.advisoryLockId, 987654322);
   assert.equal(config.tableConfigSource, "mapping");
   assert.equal(config.databaseSslRejectUnauthorized, true);
+  assert.equal(config.logFormat, "compact");
   assert.deepEqual(config.tableTypes, {
     td: {
       order: "facebook_order_td",
@@ -30,6 +31,22 @@ test("production environment uses production table types by default", () => {
       item: "facebook_order_item_cd",
     },
   });
+});
+
+test("log format supports pretty and json", () => {
+  assert.equal(loadConfig({ ...baseEnv, LOG_FORMAT: "pretty" }).logFormat, "pretty");
+  assert.equal(loadConfig({ ...baseEnv, LOG_FORMAT: "json" }).logFormat, "json");
+});
+
+test("legacy LOG_PRETTY remains supported", () => {
+  assert.equal(loadConfig({ ...baseEnv, LOG_PRETTY: "true" }).logFormat, "pretty");
+});
+
+test("invalid log format throws", () => {
+  assert.throws(
+    () => loadConfig({ ...baseEnv, LOG_FORMAT: "verbose" }),
+    /LOG_FORMAT must be compact, pretty, or json/,
+  );
 });
 
 test("database certificate verification can be explicitly disabled", () => {
