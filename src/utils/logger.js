@@ -15,13 +15,65 @@ function formatTimestamp(value) {
   return date.toISOString().replace("T", " ").slice(0, 19);
 }
 
+function formatTablePlan(entry) {
+  const scope = [entry.period_type, entry.record_type]
+    .filter(Boolean)
+    .map((value) => String(value).toUpperCase())
+    .join(" ");
+  const months = Array.isArray(entry.months)
+    ? entry.months.join(",")
+    : entry.months;
+
+  return [
+    "PLAN",
+    entry.date,
+    scope || entry.table_name,
+    months ? `month=${months}` : null,
+    entry.table_id ? `table=${entry.table_id}` : null,
+    `POS=${entry.pos_records ?? 0}`,
+    `Lark=${entry.lark_day_records ?? 0}`,
+    `create=${entry.create ?? 0}`,
+    `update=${entry.update ?? 0}`,
+    `unchanged=${entry.unchanged ?? 0}`,
+    `delete=${entry.delete ?? 0}`,
+    `duplicates=${entry.duplicates_delete ?? 0}`,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function formatDayComplete(entry) {
+  return [
+    `DAY ${entry.day_progress}`,
+    entry.date,
+    `POS orders=${entry.pos_orders ?? 0}`,
+    `create=${entry.create ?? 0}`,
+    `update=${entry.update ?? 0}`,
+    `unchanged=${entry.unchanged ?? 0}`,
+    `delete=${entry.delete ?? 0}`,
+    `duplicates=${entry.duplicates_deleted ?? 0}`,
+    `${((entry.elapsed_ms ?? 0) / 1000).toFixed(1)}s`,
+  ].join(" | ");
+}
+
 export function formatCompactLog(entry) {
   const prefix = `[${formatTimestamp(entry.time)}] ${LEVEL_NAMES[entry.level] || entry.level}`;
+  if (entry.step === "table_plan") {
+    return `${prefix}: ${formatTablePlan(entry)}`;
+  }
+  if (entry.step === "day_complete") {
+    return `${prefix}: ${formatDayComplete(entry)}`;
+  }
+
   const context = [];
   if (entry.level >= 40) {
     for (const key of [
       "date",
+      "period_type",
+      "record_type",
       "table_name",
+      "table_id",
+      "months",
       "operation",
       "attempt",
       "delay_ms",

@@ -232,6 +232,10 @@ export function createSyncDay({
       tdOrderSummaries.push(
         await syncTable({
           tableName: config.tableTypes.td.order,
+          syncDate: date,
+          periodType: "TD",
+          recordType: "ORDER",
+          months: destination.months,
           larkClient,
           token,
           tableConfig: destination.tableConfig,
@@ -255,6 +259,10 @@ export function createSyncDay({
       tdItemSummaries.push(
         await syncTable({
           tableName: config.tableTypes.td.item,
+          syncDate: date,
+          periodType: "TD",
+          recordType: "ITEM",
+          months: destination.months,
           larkClient,
           token,
           tableConfig: destination.tableConfig,
@@ -278,6 +286,10 @@ export function createSyncDay({
       cdOrderSummaries.push(
         await syncTable({
           tableName: config.tableTypes.cd.order,
+          syncDate: date,
+          periodType: "CD",
+          recordType: "ORDER",
+          months: destination.months,
           larkClient,
           token,
           tableConfig: destination.tableConfig,
@@ -301,6 +313,10 @@ export function createSyncDay({
       cdItemSummaries.push(
         await syncTable({
           tableName: config.tableTypes.cd.item,
+          syncDate: date,
+          periodType: "CD",
+          recordType: "ITEM",
+          months: destination.months,
           larkClient,
           token,
           tableConfig: destination.tableConfig,
@@ -337,9 +353,16 @@ export function createSyncDay({
       step: "day_complete",
     };
     const actions = totalDayActions(summary);
+    Object.assign(summary, {
+      create: actions.create,
+      update: actions.update,
+      unchanged: actions.unchanged,
+      delete: actions.delete,
+      duplicates_deleted: actions.duplicatesDeleted,
+    });
     logger.info(
       summary,
-      `Day ${dayProgress} | ${date} | POS ${summary.pos_orders} | C ${actions.create} U ${actions.update} same ${actions.unchanged} D ${actions.delete} dup ${actions.duplicatesDeleted} | ${(summary.elapsed_ms / 1000).toFixed(1)}s`,
+      "Daily sync completed",
     );
     return summary;
   };

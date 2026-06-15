@@ -7,6 +7,10 @@ import { findLarkSchemaIssues } from "../schemas/larkSchema.js";
 
 export async function syncTable({
   tableName,
+  syncDate,
+  periodType,
+  recordType,
+  months = [],
   larkClient,
   token,
   tableConfig,
@@ -195,7 +199,12 @@ export async function syncTable({
   if (unidentifiedLarkPreservedCount > 0) {
     logger?.warn(
       {
+        date: syncDate,
+        period_type: periodType,
+        record_type: recordType,
         table_name: tableName,
+        table_id: tableConfig.table_id,
+        months,
         unidentified_lark_preserved: unidentifiedLarkPreservedCount,
       },
       "Preserved Lark records without a resolvable identity",
@@ -218,7 +227,12 @@ export async function syncTable({
       : logger?.debug.bind(logger);
   planLogger?.(
     {
+      date: syncDate,
+      period_type: periodType,
+      record_type: recordType,
       table_name: tableName,
+      table_id: tableConfig.table_id,
+      months,
       dry_run: dryRun,
       create: toCreate.length,
       update: toUpdate.length,
@@ -230,7 +244,7 @@ export async function syncTable({
       lark_day_records: larkRecords.length,
       step: "table_plan",
     },
-    `Plan ${tableName} | C ${toCreate.length} U ${toUpdate.length} same ${unchangedCount} D ${deleteIds.length} dup ${duplicateRecordIds.length}`,
+    "Table sync plan",
   );
 
   if (!dryRun) {
