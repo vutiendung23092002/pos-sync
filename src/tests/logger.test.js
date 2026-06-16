@@ -78,3 +78,70 @@ test("compact day summary uses readable action names", () => {
     "[2026-06-15 02:21:15] INFO: DAY 1/2 | 2026-06-01 | POS orders=535 | create=0 | update=126 | unchanged=2010 | delete=0 | duplicates=0 | 152.2s",
   );
 });
+
+test("compact update detail shows changed fields and identity", () => {
+  const output = formatCompactLog({
+    level: 20,
+    time: "2026-06-15T02:21:15.000Z",
+    step: "table_update_detail",
+    date: "2026-06-01",
+    period_type: "TD",
+    record_type: "ORDER",
+    months: [6],
+    table_id: "tblJune",
+    custom_code: "662472",
+    unique_key: "order:662472",
+    changed_fields: ["Tráº¡ng thÃ¡i", "Tá»•ng tiá»n"],
+  });
+
+  assert.equal(
+    output,
+    "[2026-06-15 02:21:15] DEBUG: UPDATE_DETAIL | 2026-06-01 | TD ORDER | month=6 | table=tblJune | custom=662472 | key=order:662472 | fields=Tráº¡ng thÃ¡i,Tá»•ng tiá»n",
+  );
+});
+
+test("compact delete detail shows custom code and delete reason", () => {
+  const output = formatCompactLog({
+    level: 20,
+    time: "2026-06-15T02:21:15.000Z",
+    step: "table_delete_detail",
+    date: "2026-06-01",
+    period_type: "TD",
+    record_type: "ORDER",
+    months: [6],
+    table_id: "tblJune",
+    custom_code: "662472",
+    unique_key: "order:662472",
+    reason: "missing_in_pos_scope",
+  });
+
+  assert.equal(
+    output,
+    "[2026-06-15 02:21:15] DEBUG: DELETE_DETAIL | 2026-06-01 | TD ORDER | month=6 | table=tblJune | custom=662472 | key=order:662472 | reason=missing_in_pos_scope",
+  );
+});
+
+test("compact update detail can show before and after values", () => {
+  const output = formatCompactLog({
+    level: 20,
+    time: "2026-06-15T02:21:15.000Z",
+    step: "table_update_detail",
+    date: "2026-06-01",
+    period_type: "TD",
+    record_type: "ORDER",
+    table_id: "tblJune",
+    custom_code: "662472",
+    changed_values: [
+      {
+        field_name: "Trạng thái",
+        before: "Mới",
+        after: "Đã xác nhận",
+      },
+    ],
+  });
+
+  assert.equal(
+    output,
+    "[2026-06-15 02:21:15] DEBUG: UPDATE_DETAIL | 2026-06-01 | TD ORDER | table=tblJune | custom=662472 | changes=Trạng thái: Mới => Đã xác nhận",
+  );
+});

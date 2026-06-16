@@ -1,9 +1,38 @@
 import { buildLarkUniqueIndex, dedupeMappedRecords } from "../utils/dedupe.js";
 import {
-  getChangedLarkFieldNames,
+  getChangedLarkFieldDetails,
   getLarkTextField,
 } from "../utils/larkFields.js";
 import { findLarkSchemaIssues } from "../schemas/larkSchema.js";
+
+const CUSTOM_CODE_FIELD_NAMES = ["MÃ£ tuá»³ chá»‰nh", "Mã tuỳ chỉnh"];
+const IDENTITY_FIELD_NAMES = [
+  ...CUSTOM_CODE_FIELD_NAMES,
+  "ID",
+  "Order ID",
+  "Unique Key",
+];
+
+function getFirstTextField(fields, fieldNames) {
+  for (const fieldName of fieldNames) {
+    const value = getLarkTextField(fields?.[fieldName]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function buildRecordDebugIdentity({ posRecord, larkRecord, recordId }) {
+  const fields = posRecord?.fields ?? larkRecord?.fields ?? {};
+  const uniqueKey =
+    posRecord?.uniqueKey ?? getLarkTextField(fields?.["Unique Key"]) ?? null;
+
+  return {
+    custom_code: getFirstTextField(fields, CUSTOM_CODE_FIELD_NAMES),
+    identity: getFirstTextField(fields, IDENTITY_FIELD_NAMES),
+    unique_key: uniqueKey,
+    record_id: larkRecord?.record_id ?? recordId ?? null,
+  };
+}
 
 export async function syncTable({
   tableName,
@@ -152,26 +181,63 @@ export async function syncTable({
   const toCreate = [];
   const toUpdate = [];
   const toDelete = new Set(duplicateRecordIds);
+  const updateDebugDetails = [];
+  const deleteDebugDetails = new Map();
   let unchangedCount = 0;
   let unidentifiedLarkPreservedCount = 0;
+  const setDeleteDebugDetail = (recordId, detail) => {
+    if (!recordId || deleteDebugDetails.has(recordId)) return;
+    deleteDebugDetails.set(recordId, detail);
+  };
+
+  for (const recordId of duplicateRecordIds) {
+    const larkRecord = larkRecords.find(
+      (record) => record.record_id === recordId,
+    );
+    setDeleteDebugDetail(recordId, {
+      ...buildRecordDebugIdentity({ larkRecord, recordId }),
+      reason: "duplicate",
+    });
+  }
 
   for (const record of posRecords) {
     const existing = canonicalMap.get(record.uniqueKey);
     const status = getLarkTextField(record.fields?.["Trạng thái"]);
 
     if (deleteStatusSet.has(status)) {
-      if (existing?.record_id) toDelete.add(existing.record_id);
+      if (existing?.record_id) {
+        toDelete.add(existing.record_id);
+        setDeleteDebugDetail(existing.record_id, {
+          ...buildRecordDebugIdentity({
+            posRecord: record,
+            larkRecord: existing,
+          }),
+          reason: "delete_status",
+          status,
+        });
+      }
       continue;
     }
 
     if (existing?.record_id) {
-      const changedFieldNames = getChangedLarkFieldNames({
+      const changedFieldDetails = getChangedLarkFieldDetails({
         desiredFields: record.fields,
         existingFields: existing.fields,
         fieldSchema,
       });
+      const changedFieldNames = changedFieldDetails.map(
+        (change) => change.field_name,
+      );
       if (changedFieldNames.length) {
         toUpdate.push({ record_id: existing.record_id, fields: record.fields });
+        updateDebugDetails.push({
+          ...buildRecordDebugIdentity({
+            posRecord: record,
+            larkRecord: existing,
+          }),
+          changed_fields: changedFieldNames,
+          changed_values: changedFieldDetails,
+        });
       } else {
         unchangedCount += 1;
       }
@@ -188,7 +254,13 @@ export async function syncTable({
         unidentifiedLarkPreservedCount += 1;
         continue;
       }
-      if (!posKeySet.has(key)) toDelete.add(larkRecord.record_id);
+      if (!posKeySet.has(key)) {
+        toDelete.add(larkRecord.record_id);
+        setDeleteDebugDetail(larkRecord.record_id, {
+          ...buildRecordDebugIdentity({ larkRecord }),
+          reason: "missing_in_pos_scope",
+        });
+      }
     }
   } else {
     logger?.warn(
@@ -246,6 +318,36 @@ export async function syncTable({
     },
     "Table sync plan",
   );
+  for (const detail of updateDebugDetails) {
+    logger?.debug(
+      {
+        date: syncDate,
+        period_type: periodType,
+        record_type: recordType,
+        table_name: tableName,
+        table_id: tableConfig.table_id,
+        months,
+        step: "table_update_detail",
+        ...detail,
+      },
+      "Record planned for update",
+    );
+  }
+  for (const detail of deleteDebugDetails.values()) {
+    logger?.debug(
+      {
+        date: syncDate,
+        period_type: periodType,
+        record_type: recordType,
+        table_name: tableName,
+        table_id: tableConfig.table_id,
+        months,
+        step: "table_delete_detail",
+        ...detail,
+      },
+      "Record planned for delete",
+    );
+  }
 
   if (!dryRun) {
     if (toUpdate.length) {

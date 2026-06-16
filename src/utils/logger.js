@@ -56,6 +56,54 @@ function formatDayComplete(entry) {
   ].join(" | ");
 }
 
+function formatDetailValue(value) {
+  if (value == null) return "null";
+  if (Array.isArray(value)) return `[${value.map(formatDetailValue).join(",")}]`;
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function formatChangedValues(changes) {
+  if (!Array.isArray(changes) || !changes.length) return null;
+  return changes
+    .map(
+      (change) =>
+        `${change.field_name}: ${formatDetailValue(change.before)} => ${formatDetailValue(change.after)}`,
+    )
+    .join("; ");
+}
+
+function formatTableRecordDetail(entry, action) {
+  const scope = [entry.period_type, entry.record_type]
+    .filter(Boolean)
+    .map((value) => String(value).toUpperCase())
+    .join(" ");
+  const months = Array.isArray(entry.months)
+    ? entry.months.join(",")
+    : entry.months;
+  const changedFields = Array.isArray(entry.changed_fields)
+    ? entry.changed_fields.join(",")
+    : entry.changed_fields;
+  const changedValues = formatChangedValues(entry.changed_values);
+
+  return [
+    action,
+    entry.date,
+    scope || entry.table_name,
+    months ? `month=${months}` : null,
+    entry.table_id ? `table=${entry.table_id}` : null,
+    entry.custom_code ? `custom=${entry.custom_code}` : null,
+    entry.identity ? `identity=${entry.identity}` : null,
+    entry.unique_key ? `key=${entry.unique_key}` : null,
+    changedValues ? `changes=${changedValues}` : null,
+    !changedValues && changedFields ? `fields=${changedFields}` : null,
+    entry.reason ? `reason=${entry.reason}` : null,
+    entry.status ? `status=${entry.status}` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
 export function formatCompactLog(entry) {
   const prefix = `[${formatTimestamp(entry.time)}] ${LEVEL_NAMES[entry.level] || entry.level}`;
   if (entry.step === "table_plan") {
@@ -63,6 +111,12 @@ export function formatCompactLog(entry) {
   }
   if (entry.step === "day_complete") {
     return `${prefix}: ${formatDayComplete(entry)}`;
+  }
+  if (entry.step === "table_update_detail") {
+    return `${prefix}: ${formatTableRecordDetail(entry, "UPDATE_DETAIL")}`;
+  }
+  if (entry.step === "table_delete_detail") {
+    return `${prefix}: ${formatTableRecordDetail(entry, "DELETE_DETAIL")}`;
   }
 
   const context = [];

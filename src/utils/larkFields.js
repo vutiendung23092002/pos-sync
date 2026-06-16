@@ -31,6 +31,8 @@ export function getLarkArrayField(value) {
   return Array.isArray(value) ? value : [value];
 }
 
+const NUMBER_COMPARISON_EPSILON = 1e-6;
+
 function normalizeEmptyText(value) {
   const text = getLarkTextField(value);
   return text == null || text === "" ? null : text;
@@ -53,7 +55,35 @@ export function normalizeLarkFieldValue(value, fieldType) {
   return normalizeEmptyText(value);
 }
 
+function areNormalizedLarkValuesEqual(desired, existing, fieldType) {
+  if (
+    fieldType === 2 &&
+    typeof desired === "number" &&
+    typeof existing === "number"
+  ) {
+    return Math.abs(desired - existing) <= NUMBER_COMPARISON_EPSILON;
+  }
+  if (Array.isArray(desired)) {
+    return JSON.stringify(desired) === JSON.stringify(existing);
+  }
+  return desired === existing;
+}
+
 export function getChangedLarkFieldNames({
+  desiredFields,
+  existingFields,
+  fieldSchema,
+  ignoredFieldNames = ["Last Synced At"],
+}) {
+  return getChangedLarkFieldDetails({
+    desiredFields,
+    existingFields,
+    fieldSchema,
+    ignoredFieldNames,
+  }).map((change) => change.field_name);
+}
+
+export function getChangedLarkFieldDetails({
   desiredFields,
   existingFields,
   fieldSchema,
@@ -63,7 +93,7 @@ export function getChangedLarkFieldNames({
   const schemaByName = new Map(
     fieldSchema.map((field) => [field.name, field.type]),
   );
-  const changed = [];
+  const changes = [];
 
   for (const [fieldName, desiredValue] of Object.entries(desiredFields)) {
     if (ignored.has(fieldName)) continue;
@@ -76,14 +106,14 @@ export function getChangedLarkFieldNames({
       existingFields?.[fieldName],
       fieldType,
     );
-    if (
-      Array.isArray(desired)
-        ? JSON.stringify(desired) !== JSON.stringify(existing)
-        : desired !== existing
-    ) {
-      changed.push(fieldName);
+    if (!areNormalizedLarkValuesEqual(desired, existing, fieldType)) {
+      changes.push({
+        field_name: fieldName,
+        before: existing,
+        after: desired,
+      });
     }
   }
 
-  return changed;
+  return changes;
 }

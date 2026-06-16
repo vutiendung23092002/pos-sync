@@ -342,3 +342,86 @@ test("changed business fields still update the existing record", async () => {
   assert.equal(summary.unchangedCount, 0);
   assert.equal(client.calls.update.length, 1);
 });
+
+test("debug logs changed fields and delete identities", async () => {
+  const statusFieldName = "Trạng thái";
+  const legacyFieldName = "Mã tuỳ chỉnh";
+  const client = createLarkClient([
+    {
+      record_id: "update-record",
+      created_time: "100",
+      fields: {
+        "Unique Key": "order:1",
+        [legacyFieldName]: "662472",
+        [statusFieldName]: "Mới",
+      },
+    },
+    {
+      record_id: "delete-record",
+      created_time: "100",
+      fields: {
+        "Unique Key": "order:missing",
+        [legacyFieldName]: "662999",
+        [statusFieldName]: "Đã xác nhận",
+      },
+    },
+  ]);
+  client.listFields = async () => [
+    { field_name: "Unique Key", type: 1 },
+    { field_name: legacyFieldName, type: 1 },
+    { field_name: statusFieldName, type: 3 },
+  ];
+  const debugEntries = [];
+  const logger = {
+    debug(entry) {
+      debugEntries.push(entry);
+    },
+    info() {},
+    warn() {},
+  };
+
+  const summary = await syncTable({
+    ...common,
+    syncDate: "2026-06-01",
+    periodType: "TD",
+    recordType: "ORDER",
+    months: [6],
+    larkClient: client,
+    mappedRecords: [
+      {
+        uniqueKey: "order:1",
+        fields: {
+          "Unique Key": "order:1",
+          [legacyFieldName]: "662472",
+          [statusFieldName]: "Đã xác nhận",
+        },
+      },
+    ],
+    legacyIdentityFieldNames: [legacyFieldName],
+    logger,
+    dryRun: true,
+    posFetchComplete: true,
+  });
+
+  assert.equal(summary.updateCount, 1);
+  assert.equal(summary.deleteCount, 1);
+
+  const updateDetail = debugEntries.find(
+    (entry) => entry.step === "table_update_detail",
+  );
+  assert.equal(updateDetail.custom_code, "662472");
+  assert.deepEqual(updateDetail.changed_fields, [statusFieldName]);
+  assert.deepEqual(updateDetail.changed_values, [
+    {
+      field_name: statusFieldName,
+      before: "Mới",
+      after: "Đã xác nhận",
+    },
+  ]);
+
+  const deleteDetail = debugEntries.find(
+    (entry) => entry.step === "table_delete_detail",
+  );
+  assert.equal(deleteDetail.custom_code, "662999");
+  assert.equal(deleteDetail.reason, "missing_in_pos_scope");
+});
